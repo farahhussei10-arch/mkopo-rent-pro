@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { supabase } from '../../lib/supabaseClient';
 import { useLanguage } from '../../components/LanguageProvider';
+import type { PurchaseItem } from '../../types';
 
 interface FormData {
   name: string;
@@ -28,10 +29,23 @@ export default function AddClientPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [items, setItems] = useState<PurchaseItem[]>([]);
 
   const amount = watch('amount');
   const paid_amount = watch('paid_amount');
   const remaining = (amount || 0) - (paid_amount || 0);
+  const grandTotal = items.reduce((sum, item) => sum + item.total, 0);
+
+  const updateItem = (index: number, field: keyof PurchaseItem, value: string) => {
+    setItems((current) => current.map((item, itemIndex) => {
+      if (itemIndex !== index) return item;
+      const next = { ...item, [field]: field === 'name' ? value : Number(value.replace(/[^0-9.]/g, '')) || 0 };
+      return { ...next, total: next.quantity * next.unit_price };
+    }));
+  };
+
+  const addItem = () => setItems((current) => [...current, { name: '', quantity: 1, unit_price: 0, total: 0 }]);
+  const removeItem = (index: number) => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
 
   const onSubmit = async (data: FormData) => {
     try {
@@ -53,9 +67,10 @@ export default function AddClientPage() {
           name: data.name,
           phone: data.phone || null,
           property: data.property || null,
-          amount: parseFloat(data.amount as any),
+          amount: grandTotal > 0 ? grandTotal : parseFloat(data.amount as any),
           paid_amount: parseFloat(data.paid_amount as any),
           due_day: parseInt(data.due_day as any),
+          items: items.filter((item) => item.name.trim() && item.quantity > 0 && item.unit_price > 0),
           status: 'active',
         },
       ]);
@@ -133,6 +148,30 @@ export default function AddClientPage() {
             />
           </div>
 
+          {/* Itemized purchase list */}
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold text-slate-900">Itemized purchase list</h2>
+                <p className="mt-1 text-xs text-slate-600">Add items to calculate the client total automatically.</p>
+              </div>
+              <button type="button" onClick={addItem} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">+ Add item</button>
+            </div>
+            {items.length > 0 && (
+              <div className="mt-4 space-y-3">
+                {items.map((item, index) => (
+                  <div key={index} className="grid gap-2 rounded-xl bg-white p-3 sm:grid-cols-[1.5fr_0.7fr_1fr_auto] sm:items-end">
+                    <label className="text-xs font-semibold text-slate-600">Item name<input value={item.name} onChange={(event) => updateItem(index, 'name', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" placeholder="e.g. Cement" /></label>
+                    <label className="text-xs font-semibold text-slate-600">Quantity<input value={item.quantity} onChange={(event) => updateItem(index, 'quantity', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" inputMode="numeric" /></label>
+                    <label className="text-xs font-semibold text-slate-600">Unit price<input value={item.unit_price} onChange={(event) => updateItem(index, 'unit_price', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" inputMode="decimal" /></label>
+                    <div className="flex items-center justify-between gap-3 sm:block"><p className="text-sm font-semibold text-emerald-700">KES {item.total.toLocaleString()}</p><button type="button" onClick={() => removeItem(index)} className="text-xs font-semibold text-red-600 hover:underline">Remove</button></div>
+                  </div>
+                ))}
+                <p className="text-right text-sm font-bold text-slate-900">Grand total: KES {grandTotal.toLocaleString()}</p>
+              </div>
+            )}
+          </div>
+
           {/* Total Amount */}
           <div>
             <label className="block text-sm font-semibold text-slate-700">
@@ -141,7 +180,8 @@ export default function AddClientPage() {
             <input
               type="number"
               placeholder="e.g., 15000"
-              {...register('amount', { required: 'Amount is required', min: 1 })}
+              disabled={grandTotal > 0}
+              {...register('amount', { required: grandTotal > 0 ? false : 'Amount is required', min: grandTotal > 0 ? undefined : 1 })}
               className={`mt-2 w-full rounded-lg border px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 ${
                 errors.amount ? 'border-red-500 bg-red-50' : 'border-slate-300 bg-white'
               }`}
